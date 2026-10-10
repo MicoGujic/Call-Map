@@ -1,0 +1,153 @@
+{
+  "name": "call-map",
+  "displayName": "Call Map",
+  "description": "Zoom out from the method you're reading into a graph of who calls it and what it calls, with the arguments on every line. Walk the calls with the arrow keys.",
+  "version": "0.6.1",
+  "publisher": "call-map",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MicoGujic/Call-Map.git"
+  },
+  "homepage": "https://github.com/MicoGujic/Call-Map#readme",
+  "bugs": {
+    "url": "https://github.com/MicoGujic/Call-Map/issues"
+  },
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "call graph",
+    "call hierarchy",
+    "apex",
+    "salesforce",
+    "navigation"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "callMap.zoomOut",
+        "title": "Zoom Out to Call Map",
+        "category": "Call Map"
+      },
+      {
+        "command": "callMap.jump",
+        "title": "Jump to Caller or Call\u2026",
+        "category": "Call Map"
+      },
+      {
+        "command": "callMap.openAt",
+        "title": "Open Call Map At",
+        "category": "Call Map"
+      },
+      {
+        "command": "callMap.goto",
+        "title": "Go To",
+        "category": "Call Map"
+      },
+      {
+        "command": "callMap.openFile",
+        "title": "Open with Call Map",
+        "category": "Call Map"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "callMap.zoomOut",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g",
+        "when": "!terminalFocus && !inputFocus || editorTextFocus"
+      },
+      {
+        "command": "callMap.jump",
+        "key": "ctrl+alt+h",
+        "mac": "ctrl+alt+h",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "callMap.zoomOut",
+          "group": "navigation@90"
+        },
+        {
+          "command": "callMap.jump",
+          "group": "navigation@91"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "callMap.openAt",
+          "when": "false"
+        },
+        {
+          "command": "callMap.goto",
+          "when": "false"
+        },
+        {
+          "command": "callMap.openFile",
+          "when": "false"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "callMap.openFile",
+          "when": "!explorerResourceIsFolder && !listMultiSelection && resourceExtname =~ /^\\.(cls|trigger|java|ts|tsx|js|jsx|mjs|cjs)$/",
+          "group": "navigation@90"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Call Map",
+      "properties": {
+        "callMap.useUsagesFor": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Language ids (for example `apex`, `java`) that should always build the graph from *find all references* and *go to definition* instead of the language's call hierarchy. Languages without call hierarchy, such as Apex today, use this automatically."
+        },
+        "callMap.hover.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show callers and calls, with links, when hovering a method or class name."
+        },
+        "callMap.hideTests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide test methods (@isTest, @Test, testMethod, *.test.ts) among callers and calls. Toggle in the map with T."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test:unit": "node --test out/test/unit/*.test.js",
+    "test:integration": "node out/test/runIntegration.js",
+    "package": "vsce package --skip-license",
+    "watch": "tsc -watch -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/vscode": "1.85.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "typescript": "5.6.3"
+  },
+  "dependencies": {
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  }
+}
