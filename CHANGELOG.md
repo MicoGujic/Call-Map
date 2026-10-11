@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.1
+
+- **Shorter paths.** In a Salesforce project, paths start inside the package folder: `classes/OrderService.cls` instead of `force-app/main/default/classes/OrderService.cls`. When `sfdx-project.json` lists several package folders, files outside the default one keep their folder's name in front. Other projects show the path from the workspace folder, as before.
+- **Colors by kind of code.** Every box has a tag for what it is (Apex, Test, Trigger, LWC, Aura or Flow, and TS, JS or Java in grey), and the method or component name takes that kind's color. The colors come from your theme.
+- Long paths wrap after a slash instead of in the middle of a file name, and the line number stays next to the file.
+
+## 0.7.0
+
+- **Flows.** An Apex `@InvocableMethod` lists the flows that run it, with the inputs each one passes. A flow gets its own map: its steps in run order, the Apex actions, subflows and LWC screen components it uses, and the flows, Apex, Aura and `<lightning-flow>` tags that start it. Open it with Ctrl+Alt+G in a `.flow-meta.xml` file, or **Open with Call Map** in the Explorer.
+- **LWC parents and children.** A child's tag in a parent's template links to the child with the properties it sets. A child method that fires a `CustomEvent` links to the parent methods that handle it, including bubbling events. A parent calling a child's `@api` method through `querySelector` or `lwc:ref` links the two methods.
+- In an LWC component outside any method, the map opens on the component: who uses it, and where its events go. Z still zooms out to the class.
+
 ## 0.6.5
 
 - Classes that extend or implement a type with nested generics, such as `Database.Batchable<Map<Id, List<Account>>>`, now link to that type.

@@ -160,6 +160,9 @@ export function activate(context: vscode.ExtensionContext): CallMapApi {
   const builder = new GraphBuilder(index, false, highlighter);
   // Build the index in the background so the first map is quick.
   setTimeout(() => void index.ensure(), 1500);
+  // The package folders in sfdx-project.json decide how paths are shortened.
+  const projectFiles = vscode.workspace.createFileSystemWatcher("**/sfdx-project.json");
+  const forgetPackages = () => builder.forgetPackages();
 
   const openMap = async (uri: vscode.Uri, pos: vscode.Position, column?: vscode.ViewColumn, kind?: "class" | "file") => {
     builder.clear();
@@ -225,6 +228,10 @@ export function activate(context: vscode.ExtensionContext): CallMapApi {
     }),
     registerHover(builder),
     index,
+    projectFiles,
+    projectFiles.onDidCreate(forgetPackages),
+    projectFiles.onDidChange(forgetPackages),
+    projectFiles.onDidDelete(forgetPackages),
     // A file changed outside the editor (git checkout, a pull): built graphs may be stale.
     index.onDidChange(() => builder.clear())
   );
@@ -253,7 +260,8 @@ async function jumpPick(builder: GraphBuilder, editor: vscode.TextEditor): Promi
   );
   if (g.kind !== "method") return;
   type Pick = vscode.QuickPickItem & { id?: string };
-  const label = (n: { container: string; name: string }) => (n.container ? `${n.container}.${n.name}` : n.name);
+  const label = (n: { container: string; name: string; kind?: string }) =>
+    n.kind === "flow" ? `${n.name} (flow)` : n.kind || !n.container ? n.name : `${n.container}.${n.name}`;
   const items: Pick[] = [
     { label: "Called from", kind: vscode.QuickPickItemKind.Separator },
     ...g.callers.map((c) => ({ label: `$(arrow-left) ${label(c.node)}`, description: c.args.join(", "), detail: `${c.node.file}:${c.node.line}`, id: c.node.id })),

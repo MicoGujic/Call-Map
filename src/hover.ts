@@ -30,6 +30,13 @@ function nodeLink(builder: GraphBuilder, n: GraphNode, label = n.name): string {
   return `[${text(label)}](${cmd("callMap.goto", [item.uri.toString(), s.line, s.character])} "${title(tip)}")`;
 }
 
+/** How a box is named in a hover: flows and components by their own name, methods by class and name. */
+function label(n: GraphNode, from: string): string {
+  if (n.kind === "flow") return `${n.name} (flow)`;
+  if (n.kind) return n.name;
+  return n.container && n.container !== from ? `${n.container}.${n.name}` : n.name;
+}
+
 function list(links: string[]): string {
   if (!links.length) return "_none found_";
   const shown = links.slice(0, MAX_LINKS).join(" · ");
@@ -69,9 +76,9 @@ export function registerHover(builder: GraphBuilder): vscode.Disposable {
         if (g.kind !== "method" || token.isCancellationRequested) return undefined;
         const c = g.center;
         const item = builder.item(methodId)!;
-        md.appendMarkdown(`$(type-hierarchy) **Call Map** · ${code((c.container ? c.container + "." : "") + c.name)}\n\n`);
-        md.appendMarkdown(`$(arrow-left) **Called from:** ${list(g.callers.map((x) => nodeLink(builder, x.node, x.node.container && x.node.container !== c.container ? `${x.node.container}.${x.node.name}` : x.node.name)))}\n\n`);
-        md.appendMarkdown(`$(arrow-right) **Calls:** ${list(c.calls.map((x) => nodeLink(builder, x.node, x.node.container && x.node.container !== c.container ? `${x.node.container}.${x.node.name}` : x.node.name)))}\n\n`);
+        md.appendMarkdown(`$(type-hierarchy) **Call Map** · ${code(label(c, ""))}\n\n`);
+        md.appendMarkdown(`$(arrow-left) **Called from:** ${list(g.callers.map((x) => nodeLink(builder, x.node, label(x.node, c.container))))}\n\n`);
+        md.appendMarkdown(`$(arrow-right) **Calls:** ${list(c.calls.map((x) => nodeLink(builder, x.node, label(x.node, c.container))))}\n\n`);
         const s = item.selectionRange.start;
         md.appendMarkdown(`[Open map](${cmd("callMap.openAt", [item.uri.toString(), s.line, s.character])}) · Ctrl+Alt+H to jump`);
         return new vscode.Hover(md, word);
@@ -84,14 +91,15 @@ export function registerHover(builder: GraphBuilder): vscode.Disposable {
       const g = await builder.build(classId);
       if (g.kind !== "class" || token.isCancellationRequested) return undefined;
       const usedBy = new Map<string, string>();
+      const owner = (n: GraphNode) => (n.kind ? label(n, "") : n.container || n.file.split("/").pop()!);
       for (const c of g.callers) {
-        const key = c.node.container || c.node.file;
-        if (!usedBy.has(key)) usedBy.set(key, nodeLink(builder, c.node, c.node.container || c.node.file.split("/").pop()!));
+        const key = owner(c.node);
+        if (!usedBy.has(key)) usedBy.set(key, nodeLink(builder, c.node, key));
       }
       const uses = new Map<string, string>();
       for (const c of g.calls) {
-        const key = c.node.container || c.node.file;
-        if (!uses.has(key)) uses.set(key, nodeLink(builder, c.node, c.node.container || c.node.file.split("/").pop()!));
+        const key = owner(c.node);
+        if (!uses.has(key)) uses.set(key, nodeLink(builder, c.node, key));
       }
       const loc = builder.classLocation(classId)!;
       md.appendMarkdown(`$(type-hierarchy) **Call Map** · class ${code(g.name)} · ${g.methods.length} methods\n\n`);

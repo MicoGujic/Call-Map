@@ -385,13 +385,18 @@ export function supertypesIn(masked: string, className: string): string[] {
  * name. Lines should be masked.
  */
 export function isTestDecl(lines: string[], nameLine: number): boolean {
+  return /@(is)?test\b|\btestmethod\b/i.test(declHead(lines, nameLine));
+}
+
+/** A declaration's line with the annotations and modifiers above it, back to the previous statement. */
+function declHead(lines: string[], nameLine: number): string {
   let head = lines[nameLine] ?? "";
   for (let i = nameLine - 1; i >= 0 && i >= nameLine - 12; i--) {
     const t = lines[i].trim();
     if (/[;{}]\s*$/.test(t)) break;
     head = t + " " + head;
   }
-  return /@(is)?test\b|\btestmethod\b/i.test(head);
+  return head;
 }
 
 /**
@@ -444,10 +449,19 @@ export interface TemplateElement {
   end: number;
   tagStart: number;
   handlers: { event: string; method: string; offset: number }[];
+  /** Other attributes, as written: `record-id={recordId}` → { name: "record-id", value: "recordId" }. */
+  attrs: { name: string; value: string; offset: number }[];
 }
 
-/** Elements of an LWC template that bind events to JS methods: `onclick={handleSave}`. */
-export function templateHandlers(html: string): TemplateElement[] {
+/** Attributes that belong to the template or HTML, not to a child component's @api properties. */
+const NOT_PROPS = /^(class|style|key|slot|id|role|tabindex|title|lwc:.*|for:.*|if:.*|iterator:.*|data-.*|aria-.*|on.*)$/i;
+
+/**
+ * Elements of an LWC template that link to code: ones that bind events to JS
+ * methods (`onclick={handleSave}`), child components (`<c-child>`), and
+ * `<lightning-flow>`.
+ */
+export function templateElements(html: string): TemplateElement[] {
   const text = html.replace(/<!--[\s\S]*?-->/g, (c) => " ".repeat(c.length));
   const out: TemplateElement[] = [];
   const tagRe = /<([A-Za-z][\w:-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
@@ -455,12 +469,150 @@ export function templateHandlers(html: string): TemplateElement[] {
   while ((m = tagRe.exec(text))) {
     const attrsAt = m.index + 1 + m[1].length;
     const handlers: TemplateElement["handlers"] = [];
-    const attrRe = /(?<=\s)on([\w-]+)\s*=\s*\{\s*([A-Za-z_$][\w$]*)\s*\}/g;
+    const attrs: TemplateElement["attrs"] = [];
+    const attrRe = /(?<=\s)([\w:-]+)(?:\s*=\s*(\{[^}]*\}|"[^"]*"|'[^']*'))?/g;
     let a: RegExpExecArray | null;
     while ((a = attrRe.exec(m[2]))) {
-      handlers.push({ event: a[1], method: a[2], offset: attrsAt + a.index + a[0].indexOf(a[2], a[0].indexOf("{")) });
+      const raw = a[2] ?? "";
+      const bound = /^\{\s*([^}]*?)\s*\}$/.exec(raw)?.[1];
+      const ev = /^on([\w-]+)$/i.exec(a[1]);
+      if (ev && bound && /^[A-Za-z_$][\w$]*$/.test(bound)) {
+        handlers.push({ event: ev[1], method: bound, offset: attrsAt + a.index + a[0].indexOf(bound, a[0].indexOf("{")) });
+      } else if (!NOT_PROPS.test(a[1]) || a[1] === "lwc:ref") {
+        const value = bound ?? (raw ? `'${raw.slice(1, -1)}'` : "true");
+        attrs.push({ name: a[1], value, offset: attrsAt + a.index });
+      }
     }
-    if (handlers.length) out.push({ tag: m[1], start: m.index, end: m.index + m[0].length, tagStart: m.index + 1, handlers });
+    const tag = m[1].toLowerCase();
+    if (handlers.length || tagBundle(tag) || tag === "lightning-flow") {
+      out.push({ tag: m[1], start: m.index, end: m.index + m[0].length, tagStart: m.index + 1, handlers, attrs });
+    }
   }
   return out;
+}
+
+/** Elements of an LWC template that bind events to JS methods: `onclick={handleSave}`. */
+export function templateHandlers(html: string): TemplateElement[] {
+  return templateElements(html).filter((e) => e.handlers.length);
+}
+
+/** The LWC bundle a template tag refers to (`c-contact-list-item` → `contactListItem`), if it's a custom component. */
+export function tagBundle(tag: string): string | undefined {
+  const m = /^c-([a-z0-9][a-z0-9_-]*)$/i.exec(tag);
+  return m ? m[1].toLowerCase().replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase()) : undefined;
+}
+
+/** The tag a bundle is used with in templates (`contactListItem` → `c-contact-list-item`). */
+export function bundleTag(bundle: string): string {
+  return "c-" + bundle.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+}
+
+/** An attribute name as the child's property (`record-id` → `recordId`). */
+export function attrProp(name: string): string {
+  return name.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+}
+
+/** `this.dispatchEvent(new CustomEvent('select', { detail: … }))`: the events a component fires. */
+export interface FiredEvent {
+  name: string;
+  /** Where the event's name starts (inside the quotes). */
+  offset: number;
+  bubbles: boolean;
+  detail: string;
+}
+
+export function firedEvents(raw: string, masked: string): FiredEvent[] {
+  const out: FiredEvent[] = [];
+  const re = /\bnew\s+CustomEvent\s*\(\s*(['"`])([\w-]+)\1/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) {
+    if (masked[m.index] !== "n") continue; // in a comment
+    const open = raw.indexOf("(", m.index);
+    const args = splitList(raw, open) ?? [];
+    const opts = args[1] ?? "";
+    const detail = /^\{[\s\S]*?\bdetail\b\s*(?::\s*([\s\S]*?))?\s*(?:,\s*(?:bubbles|composed|cancelable)\b[\s\S]*)?\}$/.exec(opts.trim());
+    out.push({
+      name: m[2],
+      offset: m.index + m[0].length - 1 - m[2].length,
+      bubbles: /\bbubbles\s*:\s*true\b/.test(opts),
+      detail: detail ? shorten((detail[1] ?? "detail").replace(/\s+/g, " ").trim()) : "",
+    });
+  }
+  return out;
+}
+
+/**
+ * Calls from a parent's JS into a child component's @api methods:
+ * `this.template.querySelector('c-clock').refresh()`, the same through a
+ * variable, and `this.refs.clock.refresh()` (with `refs` naming `lwc:ref`s).
+ */
+export function childCalls(
+  masked: string,
+  raw: string,
+  refs: Map<string, string> = new Map()
+): { bundle: string; method: string; offset: number }[] {
+  const out: { bundle: string; method: string; offset: number }[] = [];
+  const query = "\\.querySelector\\s*\\(\\s*(?<q>['\"`])(?<tag>c-[\\w-]+)(?:(?!\\k<q>)[^\\n])*\\k<q>\\s*\\)";
+  const call = (group: string) => `\\s*\\??\\.\\s*(?<${group}>[A-Za-z_$][\\w$]*)\\s*\\(`;
+  const push = (bundle: string | undefined, method: string, offset: number) => bundle && out.push({ bundle, method, offset });
+  let m: RegExpExecArray | null;
+  const direct = new RegExp(query + call("method"), "g");
+  while ((m = direct.exec(raw))) {
+    if (masked[m.index] === ".") push(tagBundle(m.groups!.tag), m.groups!.method, m.index + m[0].lastIndexOf(m.groups!.method));
+  }
+  const assigned = new RegExp(`\\b(?:const|let|var)\\s+(?<v>[A-Za-z_$][\\w$]*)\\s*=\\s*this\\.template${query}`, "g");
+  while ((m = assigned.exec(raw))) {
+    if (masked[m.index] !== raw[m.index]) continue;
+    const bundle = tagBundle(m.groups!.tag);
+    const use = new RegExp(`\\b${escapeRegExp(m.groups!.v)}${call("method")}`, "g");
+    use.lastIndex = m.index + m[0].length;
+    const stop = blockEnd(masked, m.index);
+    let u: RegExpExecArray | null;
+    while ((u = use.exec(masked)) && u.index < stop) push(bundle, u.groups!.method, u.index + u[0].lastIndexOf(u.groups!.method));
+  }
+  const viaRef = new RegExp(`\\bthis\\.refs\\.(?<ref>[A-Za-z_$][\\w$]*)${call("method")}`, "g");
+  while ((m = viaRef.exec(masked))) push(refs.get(m.groups!.ref), m.groups!.method, m.index + m[0].lastIndexOf(m.groups!.method));
+  return out.sort((a, b) => a.offset - b.offset);
+}
+
+/** Where the `{ … }` block around `offset` closes (or the end of the text). */
+function blockEnd(masked: string, offset: number): number {
+  let depth = 0;
+  for (let i = offset; i < masked.length; i++) {
+    if (masked[i] === "{") depth++;
+    else if (masked[i] === "}" && --depth < 0) return i;
+  }
+  return masked.length;
+}
+
+/**
+ * Flows an Apex file starts: `Flow.Interview.createInterview('Name', inputs)`
+ * and `new Flow.Interview.Name(inputs)`. Offsets point at the flow's name.
+ */
+export function apexFlowStarts(raw: string, masked: string): { flow: string; offset: number }[] {
+  const out: { flow: string; offset: number }[] = [];
+  const created = /\bFlow\s*\.\s*Interview\s*\.\s*createInterview\s*\(\s*(?:'[^'\n]*'\s*,\s*)?'(\w+)'/gi;
+  const typed = /\bnew\s+Flow\s*\.\s*Interview\s*\.\s*(\w+)\s*\(/gi;
+  let m: RegExpExecArray | null;
+  while ((m = created.exec(raw))) {
+    if (masked[m.index] === raw[m.index]) out.push({ flow: m[1], offset: m.index + m[0].length - 1 - m[1].length });
+  }
+  while ((m = typed.exec(raw))) {
+    if (masked[m.index] === raw[m.index] && m[1].toLowerCase() !== "createinterview") out.push({ flow: m[1], offset: m.index + m[0].lastIndexOf(m[1]) });
+  }
+  return out.sort((a, b) => a.offset - b.offset);
+}
+
+/** Flows Aura JS starts: `component.find("flow").startFlow("Name", inputs)`. */
+export function auraFlowStarts(raw: string, masked: string): { flow: string; offset: number }[] {
+  const out: { flow: string; offset: number }[] = [];
+  const re = /\.startFlow\s*\(\s*(['"])(\w+)\1/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) if (masked[m.index] === ".") out.push({ flow: m[2], offset: m.index + m[0].length - 1 - m[2].length });
+  return out;
+}
+
+/** Whether the method declared at `nameLine` is an @InvocableMethod (callable from Flow). Lines should be masked. */
+export function isInvocableDecl(lines: string[], nameLine: number): boolean {
+  return /@InvocableMethod\b/i.test(declHead(lines, nameLine));
 }

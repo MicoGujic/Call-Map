@@ -1,13 +1,25 @@
 import * as vscode from "vscode";
-import { apexImports, findMethodDecls, maskStringsAndComments, MethodDecl, supertypesIn } from "./parse";
+import { FlowInfo, parseFlow } from "./flowparse";
+import {
+  apexFlowStarts,
+  apexImports,
+  auraFlowStarts,
+  findMethodDecls,
+  firedEvents,
+  maskStringsAndComments,
+  MethodDecl,
+  supertypesIn,
+  tagBundle,
+  templateElements,
+} from "./parse";
 
-/** Files Call Map matches by name: Apex, Java, and Salesforce frontend bundles. */
-const GLOB = "{**/*.cls,**/*.trigger,**/*.java,**/lwc/**/*.js,**/lwc/**/*.html,**/aura/**/*.js}";
+/** Files Call Map matches by name: Apex, Java, Salesforce frontend bundles, and flows. */
+const GLOB = "{**/*.cls,**/*.trigger,**/*.java,**/lwc/**/*.js,**/lwc/**/*.html,**/aura/**/*.js,**/*.flow-meta.xml}";
 const EXCLUDE = "**/{node_modules,.sfdx,.sf,.git,target,build,out}/**";
 const MAX_FILES = 20000;
 const TEXT_CACHE = 120;
 
-export type FileKind = "apex" | "java" | "js" | "html";
+export type FileKind = "apex" | "java" | "js" | "html" | "flow";
 
 export function kindOf(uri: vscode.Uri): FileKind | undefined {
   const ext = (/\.([^./]+)$/.exec(uri.path)?.[1] ?? "").toLowerCase();
@@ -15,7 +27,20 @@ export function kindOf(uri: vscode.Uri): FileKind | undefined {
   if (ext === "java") return "java";
   if (ext === "js" && /\/(lwc|aura)\//i.test(uri.path)) return "js";
   if (ext === "html" && /\/lwc\//i.test(uri.path)) return "html";
+  if (ext === "xml" && /\.flow-meta\.xml$/i.test(uri.path)) return "flow";
   return undefined;
+}
+
+/** The LWC bundle a file belongs to (`…/lwc/contactList/contactList.js` → `contactList`). */
+export function bundleOf(uri: vscode.Uri): string | undefined {
+  return /\/lwc\/([^/]+)\/[^/]+$/i.exec(uri.path)?.[1];
+}
+
+/** A flow's API name, from its file name. */
+export function flowApiName(uri: vscode.Uri): string {
+  const file = uri.path.slice(uri.path.lastIndexOf("/") + 1);
+  const suffix = ".flow-meta.xml";
+  return file.toLowerCase().endsWith(suffix) ? file.slice(0, -suffix.length) : "";
 }
 
 /** One call: where the called name starts, and the word before the dot (`Foo.bar(` → "foo"). */
@@ -42,6 +67,15 @@ export interface Entry {
   apex: { local: string; cls: string; method: string }[];
   /** Lowercased words that appear anywhere (for quick "does this file mention X"). */
   words: Set<string>;
+  /**
+   * What the file links to outside plain calls, lowercased: "apex:class" (a
+   * flow's Apex action), "flow:name" (a subflow, or a flow started from
+   * code), "lwc:bundle" (a child component or flow screen component), and
+   * "fires:event" (a CustomEvent the component fires).
+   */
+  refs: Set<string>;
+  /** Flows: the parsed flow. */
+  flow?: FlowInfo;
 }
 
 /**
@@ -53,6 +87,8 @@ export class WorkspaceIndex implements vscode.Disposable {
   private entries = new Map<string, Entry>();
   /** Lowercased file base name → file, per kind ("apex:foo"). */
   private byBase = new Map<string, vscode.Uri>();
+  /** Lowercased LWC bundle name → the bundle's main JS file. */
+  private bundles = new Map<string, vscode.Uri>();
   private building: Promise<void> | undefined;
   private texts = new Map<string, { raw: string; masked: string }>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -148,6 +184,19 @@ export class WorkspaceIndex implements vscode.Disposable {
     return out;
   }
 
+  /** Files whose entry lists a link (see Entry.refs), such as "lwc:contactlist". */
+  async withRef(ref: string): Promise<Entry[]> {
+    await this.ensure();
+    const key = ref.toLowerCase();
+    return [...this.entries.values()].filter((e) => e.refs.has(key));
+  }
+
+  /** The main JS file of an LWC bundle. */
+  async bundleJs(bundle: string): Promise<vscode.Uri | undefined> {
+    await this.ensure();
+    return this.bundles.get(bundle.toLowerCase());
+  }
+
   async mentions(uri: vscode.Uri, word: string): Promise<boolean> {
     await this.ensure();
     return this.entries.get(uri.toString())?.words.has(word.toLowerCase()) ?? true;
@@ -191,6 +240,8 @@ export class WorkspaceIndex implements vscode.Disposable {
     this.entries.delete(key);
     const base = baseKey(e);
     if (this.byBase.get(base)?.toString() === key) this.byBase.delete(base);
+    const bundle = mainBundle(uri);
+    if (bundle && this.bundles.get(bundle)?.toString() === key) this.bundles.delete(bundle);
     this.changed.fire(uri);
   }
 
@@ -209,13 +260,26 @@ export class WorkspaceIndex implements vscode.Disposable {
     const e = entryFor(uri, kind, text.raw, text.masked);
     this.entries.set(key, e);
     if (!this.byBase.has(baseKey(e))) this.byBase.set(baseKey(e), uri);
+    const bundle = mainBundle(uri);
+    if (bundle) this.bundles.set(bundle, uri);
     if (notify) this.changed.fire(uri);
   }
 }
 
 function baseKey(e: Entry): string {
-  const base = (/([^/]+?)(\.[^./]+)?$/.exec(e.uri.path)?.[1] ?? "").toLowerCase();
-  return `${e.kind}:${base}`;
+  const base = e.kind === "flow" ? flowApiName(e.uri) : (/([^/]+?)(\.[^./]+)?$/.exec(e.uri.path)?.[1] ?? "");
+  return `${e.kind}:${base.toLowerCase()}`;
+}
+
+/** The bundle whose main file this is (`lwc/foo/foo.js` → "foo"), lowercased. */
+function mainBundle(uri: vscode.Uri): string | undefined {
+  const m = /\/lwc\/([^/]+)\/([^/]+)\.js$/i.exec(uri.path);
+  return m && m[1].toLowerCase() === m[2].toLowerCase() ? m[1].toLowerCase() : undefined;
+}
+
+/** Offset of a position, from an entry's line table. */
+export function offsetIn(e: Entry, pos: vscode.Position): number {
+  return (e.lines[pos.line] ?? 0) + pos.character;
 }
 
 /** Position of an offset, from an entry's line table. */
@@ -232,6 +296,16 @@ export function positionIn(e: Entry, offset: number): vscode.Position {
 const isSpace = (c: string | undefined) => c === " " || c === "\t" || c === "\n" || c === "\r";
 
 export function entryFor(uri: vscode.Uri, kind: FileKind, raw: string, masked: string): Entry {
+  const lines = [0];
+  for (let i = raw.indexOf("\n"); i >= 0; i = raw.indexOf("\n", i + 1)) lines.push(i + 1);
+  const refs = new Set<string>();
+  if (kind === "flow") {
+    const flow = parseFlow(raw);
+    for (const el of flow.elements) {
+      for (const c of el.calls) refs.add(`${c.type}:${c.type === "apex" ? c.target.replace(/^[A-Za-z0-9]+__/, "") : c.target}`.toLowerCase());
+    }
+    return { uri, kind, calls: new Map(), decls: [], lines, aura: new Set(), supers: new Map(), apex: [], words: new Set(), refs, flow };
+  }
   const calls = new Map<string, CallSite[]>();
   const words = new Set<string>();
   const re = /[A-Za-z_$][\w$]*/g;
@@ -258,8 +332,6 @@ export function entryFor(uri: vscode.Uri, kind: FileKind, raw: string, masked: s
     if (list) list.push(site);
     else calls.set(w, [site]);
   }
-  const lines = [0];
-  for (let i = raw.indexOf("\n"); i >= 0; i = raw.indexOf("\n", i + 1)) lines.push(i + 1);
   const decls = kind === "apex" || kind === "java" ? findMethodDecls(raw) : [];
   const aura = new Set<string>();
   if (kind === "js" && /\/aura\//i.test(uri.path)) {
@@ -275,5 +347,16 @@ export function entryFor(uri: vscode.Uri, kind: FileKind, raw: string, masked: s
     }
   }
   const apex = kind === "js" ? [...apexImports(raw)].map(([local, t]) => ({ local, ...t })) : [];
-  return { uri, kind, calls, decls, lines, aura, supers, apex, words };
+  if (kind === "apex") for (const f of apexFlowStarts(raw, masked)) refs.add(`flow:${f.flow}`.toLowerCase());
+  if (kind === "js" && /\/aura\//i.test(uri.path)) for (const f of auraFlowStarts(raw, masked)) refs.add(`flow:${f.flow}`.toLowerCase());
+  if (kind === "js" && /\/lwc\//i.test(uri.path)) for (const ev of firedEvents(raw, masked)) refs.add(`fires:${ev.name}`.toLowerCase());
+  if (kind === "html") {
+    for (const el of templateElements(raw)) {
+      const bundle = tagBundle(el.tag);
+      if (bundle) refs.add(`lwc:${bundle}`.toLowerCase());
+      const flow = el.tag.toLowerCase() === "lightning-flow" && el.attrs.find((a) => a.name === "flow-api-name")?.value;
+      if (flow && flow.startsWith("'")) refs.add(`flow:${flow.slice(1, -1)}`.toLowerCase());
+    }
+  }
+  return { uri, kind, calls, decls, lines, aura, supers, apex, words, refs };
 }

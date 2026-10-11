@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { Entry, FileKind, kindOf, positionIn, WorkspaceIndex } from "./index";
-import { declaredTypeOf, escapeRegExp, findCallCandidates, findMethodDecls, templateHandlers } from "./parse";
+import { declaredTypeOf, escapeRegExp, findCallCandidates, findMethodDecls, templateElements } from "./parse";
 
 function baseName(uri: vscode.Uri): string {
   return (/([^/]+?)(\.[^./]+)?$/.exec(uri.path)?.[1] ?? "").toLowerCase();
@@ -13,6 +13,8 @@ export interface Item {
   uri: vscode.Uri;
   range: vscode.Range;
   selectionRange: vscode.Range;
+  /** Not a method: a whole flow, or an LWC component as its parents see it. */
+  role?: "flow" | "component";
 }
 
 export interface Incoming {
@@ -21,6 +23,8 @@ export interface Incoming {
   sites: vscode.Range[];
   /** Arguments, when the call site alone can't give them (JavaScript into Apex). */
   args?: string[];
+  /** What the box says about the link, when it isn't plain arguments (flow inputs, events). */
+  map?: string;
 }
 
 export interface Outgoing {
@@ -28,6 +32,7 @@ export interface Outgoing {
   /** Call sites, in the calling item's document. */
   sites: vscode.Range[];
   args?: string[];
+  map?: string;
 }
 
 export interface Source {
@@ -322,12 +327,15 @@ export class UsagesSource implements Source {
     return out;
   }
 
-  /** LWC template: each element with event handlers (`onclick={handleSave}`) is a caller. */
+  /**
+   * LWC template: each element with event handlers (`onclick={handleSave}`),
+   * each child component and each <lightning-flow> is a caller.
+   */
   private fromTemplate(doc: vscode.TextDocument): Item[] {
-    return templateHandlers(doc.getText()).map((el) => {
+    return templateElements(doc.getText()).map((el) => {
       const tag = doc.positionAt(el.tagStart);
       return {
-        name: `<${el.tag}> ${el.handlers.map((h) => "on" + h.event).join(" ")}`,
+        name: [`<${el.tag}>`, ...el.handlers.map((h) => "on" + h.event)].join(" "),
         detail: "",
         uri: doc.uri,
         range: new vscode.Range(doc.positionAt(el.start), doc.positionAt(el.end)),

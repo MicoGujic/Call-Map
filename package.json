@@ -2,7 +2,7 @@
   "name": "salesforce-call-map",
   "displayName": "Call Map",
   "description": "Zoom out from the method you're reading into a graph of who calls it and what it calls, with the arguments on every line. Walk the calls with the arrow keys.",
-  "version": "0.6.5",
+  "version": "0.7.1",
   "publisher": "MicoGujic",
   "license": "MIT",
   "repository": {
@@ -26,6 +26,8 @@
     "call graph",
     "call hierarchy",
     "apex",
+    "lwc",
+    "flow",
     "salesforce",
     "navigation"
   ],
@@ -109,7 +111,7 @@
       "explorer/context": [
         {
           "command": "callMap.openFile",
-          "when": "!explorerResourceIsFolder && !listMultiSelection && resourceExtname =~ /^\\.(cls|trigger|java|ts|tsx|js|jsx|mjs|cjs)$/",
+          "when": "!explorerResourceIsFolder && !listMultiSelection && (resourceExtname =~ /^\\.(cls|trigger|java|ts|tsx|js|jsx|mjs|cjs)$/ || resourceFilename =~ /\\.flow-meta\\.xml$/)",
           "group": "navigation@90"
         }
       ]

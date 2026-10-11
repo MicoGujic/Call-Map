@@ -27,9 +27,12 @@ Every push and pull request runs the **Build** workflow: compile, unit tests and
 | `src/extension.ts` | Commands, the map window and its messages |
 | `src/graph.ts` | Builds the method and class maps |
 | `src/sources.ts` | Finds callers and calls: call hierarchy, or references and definitions, or name matching |
-| `src/index.ts` | The background index of Apex, Java and Lightning files |
+| `src/index.ts` | The background index of Apex, Java, Lightning and flow files |
 | `src/bridge.ts` | LWC/Aura to Apex, and LWC templates to JavaScript |
-| `src/parse.ts` | Text parsing: declarations, calls, arguments, tests |
+| `src/links.ts` | Flows (Apex actions, subflows, screen components, flows started from code) and LWC parents and children (child tags, events, `@api` calls) |
+| `src/flowparse.ts` | Reads flow metadata: steps, run order, what each step calls |
+| `src/paths.ts` | Short paths in Salesforce projects (from `sfdx-project.json`), and the kind of code in each file for the map's colors |
+| `src/parse.ts` | Text parsing: declarations, calls, arguments, tests, LWC templates and events |
 | `src/highlight.ts` | Colors code with the user's theme |
 | `src/hover.ts` | Hover links in the editor |
 | `media/graph.js`, `media/graph.css` | The map window |

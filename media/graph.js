@@ -18,13 +18,22 @@
   const S = { cur: null, graph: null, hist: [], col: "center", idx: 0, row: 0, focusId: null, full: null, hideTests: false, hidden: 0, source: "", armed: false };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  // Template elements ("<lightning-button> onclick") and @wire properties aren't called with parentheses.
-  const sig = (n) => (/^[<@]/.test(n.name) ? n.name : n.name + "(" + n.params.join(", ") + ")");
-  const dot = (n) => (/^[<@]/.test(n.name) ? " " : ".");
-  const qual = (n) => (n.container ? n.container + dot(n) : "") + n.name;
+  // Template elements ("<lightning-button> onclick"), @wire properties, flows and components aren't called with parentheses.
+  const plain = (n) => !!n.kind || /^[<@]/.test(n.name);
+  const sig = (n) => (plain(n) ? n.name : n.name + "(" + n.params.join(", ") + ")");
+  const dot = (n) => (plain(n) ? " " : ".");
+  const qual = (n) => (n.kind === "flow" ? n.name + " (flow)" : n.kind ? n.name : (n.container ? n.container + dot(n) : "") + n.name);
   const mapping = (args, params) =>
     args.length ? args.map((a, k) => a + " → " + (params[k] || "…")).join(" · ") : "no arguments";
   const isClass = () => S.graph && S.graph.kind === "class";
+  const TAGS = { apex: "Apex", trigger: "Trigger", test: "Test", lwc: "LWC", aura: "Aura", flow: "Flow", java: "Java", ts: "TS", js: "JS" };
+  const kindName = (type) => (Object.prototype.hasOwnProperty.call(TAGS, type) ? TAGS[type] : "");
+  /** The small label naming the kind of code (Apex, Test, LWC, Flow, …); its color comes from the box's t-… class. */
+  const tag = (type) => (kindName(type) ? `<span class="tag">${kindName(type)}</span>` : "");
+  // Built from the name, so only a known kind can reach the markup.
+  const typeClass = (type) => (kindName(type) ? ` t-${kindName(type).toLowerCase()}` : "");
+  // A path breaks after a slash, not inside a name, and its line number stays with it.
+  const where = (file, line) => `${esc(file).replace(/\//g, "/<wbr>")}<span class="ln"> : ${esc(line)}</span>`;
 
   // ---------- test filter ----------
 
@@ -81,9 +90,9 @@
   function sideNode(kind, n, i, map, extra) {
     const sel = S.col === kind && S.idx === i;
     const doc = sel && n.doc ? `<span class="doc">${esc(n.doc)}</span>` : "";
-    return `<button class="node ${kind === "callers" ? "caller" : "callee"}${sel ? " sel" : ""}" data-col="${kind}" data-i="${i}" tabindex="-1">
-      ${n.container ? `<span class="cls">${esc(n.container)}</span>` : ""}<span class="nm">${n.container && dot(n) === "." ? "." : ""}${esc(sig(n))}${extra || ""}</span>
-      <span class="map">${esc(map)}</span>${doc}<span class="loc">${esc(n.file)} : ${esc(n.line)}</span></button>`;
+    return `<button class="node ${kind === "callers" ? "caller" : "callee"}${sel ? " sel" : ""}${typeClass(n.type)}" data-col="${kind}" data-i="${i}" tabindex="-1">
+      <span class="cls">${tag(n.type)}${esc(n.container || "")}</span><span class="nm">${n.container && dot(n) === "." ? "." : ""}${esc(sig(n))}${extra || ""}</span>
+      <span class="map">${esc(map)}</span>${doc}<span class="loc">${where(n.file, n.line)}</span></button>`;
   }
 
   const HEX = /^#[0-9a-f]{3,8}$/i;
@@ -107,11 +116,11 @@
   function renderMethod() {
     const g = S.graph, c = g.center;
     const callers =
-      g.callers.map((e, i) => sideNode("callers", e.node, i, "passes " + (e.args.join(", ") || "nothing"), e.count > 1 ? ` <span class="count">×${esc(e.count)}</span>` : "")).join("") ||
-      `<div class="empty">Nothing in this workspace calls this method.</div>`;
+      g.callers.map((e, i) => sideNode("callers", e.node, i, e.map || "passes " + (e.args.join(", ") || "nothing"), e.count > 1 ? ` <span class="count">×${esc(e.count)}</span>` : "")).join("") ||
+      `<div class="empty">${{ flow: "Nothing in this workspace starts this flow.", component: "No component or flow in this workspace uses it." }[c.kind] || "Nothing in this workspace calls this method."}</div>`;
     const calls =
-      c.calls.map((e, i) => sideNode("calls", e.node, i, mapping(e.args, e.node.params), e.count > 1 ? ` <span class="count">×${esc(e.count)}</span>` : "")).join("") ||
-      `<div class="empty">Calls nothing else in this workspace.</div>`;
+      c.calls.map((e, i) => sideNode("calls", e.node, i, e.map || mapping(e.args, e.node.params), e.count > 1 ? ` <span class="count">×${esc(e.count)}</span>` : "")).join("") ||
+      `<div class="empty">${{ flow: "Runs no Apex, subflow or component from this workspace.", component: "Fires no event that a parent handles." }[c.kind] || "Calls nothing else in this workspace."}</div>`;
     const byLine = new Map();
     c.calls.forEach((e, i) => {
       if (!byLine.has(e.line)) byLine.set(e.line, []);
@@ -130,8 +139,8 @@
     gwrap.innerHTML = `<div class="cols">
       <div class="colm side${S.col === "callers" ? " focus" : ""}"><div class="ch">Called from (${g.callers.length})</div>${callers}</div>
       <div class="colm"><div class="ch">You are here</div>
-        <div class="node cur${S.armed ? " armed" : ""}" id="center">
-          <span class="cls">${esc([c.container, c.file + " : " + c.line].filter(Boolean).join(" · "))}</span>
+        <div class="node cur${S.armed ? " armed" : ""}${typeClass(c.type)}" id="center">
+          <span class="cls">${tag(c.type)}${c.container ? `${esc(c.container)} · ` : ""}${where(c.file, c.line)}</span>
           <span class="nm">${esc(sig(c))}</span>
           ${c.doc ? `<span class="doc">${esc(c.doc)}</span>` : ""}
           <pre class="code">${body}</pre>
@@ -198,7 +207,7 @@
         const inner = !sel && m.internal.length ? `<span class="internal">uses ${esc(m.internal.join(", "))}</span>` : "";
         const doc = sel && m.node.doc ? `<span class="doc">${esc(m.node.doc)}</span>` : "";
         const rel = sel ? relations(r) : "";
-        return `<div class="mrow${sel ? " sel" : ""}${hot ? " hot" : ""}" data-row="${r}">
+        return `<div class="mrow${sel ? " sel" : ""}${hot ? " hot" : ""}${typeClass(m.node.type)}" data-row="${r}">
           <span class="mname">${esc(sig(m.node))}</span>
           <span class="counts">${m.inCount ? "← " + esc(m.inCount) : ""}${m.inCount && m.outCount ? " · " : ""}${m.outCount ? esc(m.outCount) + " →" : ""}</span>
           ${inner}${rel}${doc}</div>`;
@@ -207,8 +216,8 @@
     gwrap.innerHTML = `<div class="cols">
       <div class="colm side${S.col === "callers" ? " focus" : ""}"><div class="ch">Used by (${g.callers.length})</div>${callers}</div>
       <div class="colm"><div class="ch">Class</div>
-        <div class="node cur klass" id="center">
-          <span class="cls">${esc(g.file)} : ${esc(g.line)}</span>
+        <div class="node cur klass${typeClass(g.type)}" id="center">
+          <span class="cls">${tag(g.type)}${where(g.file, g.line)}</span>
           <span class="nm">${esc(g.name)}</span>
           ${g.doc ? `<span class="doc">${esc(g.doc)}</span>` : ""}
           <div class="rows">${rows || `<div class="empty">No methods found.</div>`}</div>
@@ -225,7 +234,7 @@
     if (isClass()) renderClass();
     else renderMethod();
     zoomBtn.textContent = isClass() ? "Zoom in to method (Z)" : "Zoom out to class (Z)";
-    zoomBtn.disabled = isClass() && !S.graph.methods.length;
+    zoomBtn.disabled = isClass() ? !S.graph.methods.length : !S.graph.center.classId;
     if (dir) {
       gwrap.classList.remove("go-right", "go-left", "go-out", "go-in");
       void gwrap.offsetWidth;
@@ -415,7 +424,7 @@
     if (g.kind === "class") {
       const m = g.methods[S.row];
       if (m) travel(m.node.id, "in");
-    } else {
+    } else if (g.center.classId) {
       travel(g.center.classId, "out", g.center.id);
     }
   }

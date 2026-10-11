@@ -2,7 +2,10 @@ import * as vscode from "vscode";
 import { ColoredLine, Highlighter } from "./highlight";
 import { escapeRegExp, findDoc, isTestDecl, maskStringsAndComments, readArgs, readParams } from "./parse";
 import { ApexBridge } from "./bridge";
-import { WorkspaceIndex } from "./index";
+import { elementAt, flowOutline } from "./flowparse";
+import { bundleOf, kindOf, offsetIn, WorkspaceIndex } from "./index";
+import { SalesforceLinks } from "./links";
+import { codeType, CodeType, PackageDir, packageDirs, shortPath } from "./paths";
 import { HierarchySource, Incoming, Item, itemId, Outgoing, Source, UsagesSource } from "./sources";
 
 /** What the webview draws. Plain JSON. */
@@ -17,6 +20,10 @@ export interface GraphNode {
   doc: string;
   /** A test method (@isTest, @Test, testMethod, or in a test file). */
   test: boolean;
+  /** Not a method: a whole flow, or an LWC component as its parents use it. */
+  kind?: "flow" | "component";
+  /** What kind of code it is (Apex, test, LWC, flow, …), for its color. */
+  type: CodeType;
 }
 
 export interface Graph {
@@ -25,10 +32,12 @@ export interface Graph {
     code: string[];
     colors?: { colorMap: string[]; lines: ColoredLine[] };
     firstLine: number;
-    calls: { node: GraphNode; args: string[]; line: number; count: number }[];
+    /** `map`: what the box says about the link, when it isn't plain arguments (flow inputs, events). */
+    calls: { node: GraphNode; args: string[]; map?: string; line: number; count: number }[];
   };
-  callers: { node: GraphNode; args: string[]; count: number }[];
-  source: "hierarchy" | "usages";
+  callers: { node: GraphNode; args: string[]; map?: string; count: number }[];
+  /** Where the links came from: a language server, matching names, or Salesforce metadata (flows, components). */
+  source: "hierarchy" | "usages" | "metadata";
 }
 
 export interface ClassGraph {
@@ -38,6 +47,7 @@ export interface ClassGraph {
   file: string;
   line: number;
   doc: string;
+  type: CodeType;
   methods: { node: GraphNode; internal: string[]; internalTo: number[]; inCount: number; outCount: number }[];
   /** Methods outside the class that call into it. */
   callers: { node: GraphNode; targets: { method: number; args: string[] }[] }[];
@@ -57,14 +67,44 @@ export class GraphBuilder {
   private hierarchy = new HierarchySource();
   private usages: UsagesSource;
   private bridge: ApexBridge;
+  private links: SalesforceLinks;
   /** Which source and item belong to each id we have shown. */
   private known = new Map<string, { item: Item; source: Source }>();
   private classes = new Map<string, { uri: vscode.Uri; container: string; name: string }>();
   private cache = new Map<string, Promise<AnyGraph>>();
+  private packages: Promise<PackageDir[]> | undefined;
 
   constructor(index: WorkspaceIndex, private readonly forceUsages = false, private readonly highlighter?: Highlighter) {
     this.usages = new UsagesSource(index);
     this.bridge = new ApexBridge(this.usages);
+    this.links = new SalesforceLinks(this.usages);
+  }
+
+  /** Salesforce package directories, from every sfdx-project.json in the workspace. */
+  private packageDirs(): Promise<PackageDir[]> {
+    this.packages ??= (async () => {
+      const out: PackageDir[] = [];
+      for (const f of await vscode.workspace.findFiles("**/sfdx-project.json", "**/{node_modules,.sfdx,.sf,.git}/**", 20)) {
+        try {
+          out.push(...packageDirs(new TextDecoder().decode(await vscode.workspace.fs.readFile(f)), vscode.Uri.joinPath(f, "..").path));
+        } catch {
+          // unreadable: show full paths for that project
+        }
+      }
+      return out;
+    })();
+    return this.packages;
+  }
+
+  /** A file's path as the map shows it: short inside Salesforce packages. */
+  private async path(uri: vscode.Uri): Promise<string> {
+    return shortPath(uri.path, vscode.workspace.asRelativePath(uri, false), await this.packageDirs());
+  }
+
+  /** Read sfdx-project.json again next time (it was created, changed or deleted). */
+  forgetPackages(): void {
+    this.packages = undefined;
+    this.cache.clear();
   }
 
   /** Drop built graphs. File data stays: the index keeps itself current. */
@@ -98,12 +138,18 @@ export class GraphBuilder {
 
   /** Find the method at a cursor position. */
   async prepare(uri: vscode.Uri, pos: vscode.Position): Promise<string | undefined> {
+    if (kindOf(uri) === "flow") return this.prepareFlow(uri);
     // Resolve the method around the cursor first. Asking the call hierarchy at
     // the raw cursor would return the callee when the cursor is on a call,
     // and nothing when it is on whitespace.
     const enclosing = await this.usages.prepare(uri, pos);
     let entry: { item: Item; source: Source } | undefined;
     if (enclosing) entry = await this.resolve(enclosing);
+    else if (bundleOf(uri)) {
+      // An LWC component outside any method: the component as its parents use it.
+      const component = await this.links.componentItem(bundleOf(uri)!);
+      if (component) entry = { item: component, source: this.usages };
+    }
     else if (!(await this.skipHierarchy(uri))) {
       const h = await this.hierarchy.prepare(uri, pos).catch(() => undefined);
       if (h) entry = { item: h, source: this.hierarchy };
@@ -136,6 +182,10 @@ export class GraphBuilder {
    * get their top-level functions.
    */
   async prepareFileClass(uri: vscode.Uri, pos?: vscode.Position): Promise<string> {
+    if (kindOf(uri) === "flow") {
+      const flow = await this.prepareFlow(uri);
+      if (flow) return flow;
+    }
     const doc = await vscode.workspace.openTextDocument(uri);
     const masked = maskStringsAndComments(doc.getText());
     const at = pos ? doc.offsetAt(pos) : -1;
@@ -153,6 +203,14 @@ export class GraphBuilder {
     return this.registerClass(uri, around ?? first ?? "");
   }
 
+  private async prepareFlow(uri: vscode.Uri): Promise<string | undefined> {
+    const item = await this.links.flowItem(uri);
+    if (!item) return undefined;
+    const id = itemId(item);
+    this.known.set(id, { item, source: this.usages });
+    return id;
+  }
+
   private registerClass(uri: vscode.Uri, container: string): string {
     const id = `class:${uri.toString()}#${container}`;
     if (!this.classes.has(id)) {
@@ -163,6 +221,8 @@ export class GraphBuilder {
   }
 
   private async classIdOf(item: Item): Promise<string> {
+    if (item.role === "flow") return ""; // a flow has no class view
+    if (item.role === "component") return this.registerClass(item.uri, item.detail ?? "");
     const outline = await this.usages.enclosing(item.uri, item.selectionRange.start);
     return this.registerClass(item.uri, outline?.detail ?? "");
   }
@@ -178,23 +238,31 @@ export class GraphBuilder {
   }
 
   private async relations(entry: { item: Item; source: Source }): Promise<{ incoming: Incoming[]; outgoing: Outgoing[] }> {
-    const [incomingOwn, outgoingOwn, incomingJs, outgoingApex] = await Promise.all([
-      entry.source.incoming(entry.item).catch(() => []),
-      entry.source.outgoing(entry.item).catch(() => []),
-      this.bridge.incoming(entry.item).catch(() => []),
-      this.bridge.outgoing(entry.item).catch(() => []),
+    // Flows and components aren't code a language server knows: only their Salesforce links count.
+    const code = !entry.item.role;
+    const [incomingOwn, outgoingOwn, incomingJs, outgoingApex, incomingSf, outgoingSf] = await Promise.all([
+      code ? entry.source.incoming(entry.item).catch(() => []) : [],
+      code ? entry.source.outgoing(entry.item).catch(() => []) : [],
+      code ? this.bridge.incoming(entry.item).catch(() => []) : [],
+      code ? this.bridge.outgoing(entry.item).catch(() => []) : [],
+      this.links.incoming(entry.item).catch(() => []),
+      this.links.outgoing(entry.item).catch(() => []),
     ]);
     // Frontend ↔ Apex links: let each end use the best source for its language.
     const adopt = async (item: Item): Promise<Item> => {
+      if (item.role) {
+        if (!this.known.has(itemId(item))) this.known.set(itemId(item), { item, source: this.usages });
+        return item;
+      }
       const resolved = await this.resolve(item);
       const id = itemId(resolved.item);
       if (!this.known.has(id)) this.known.set(id, resolved);
       return resolved.item;
     };
     const incomingRaw = [...incomingOwn];
-    for (const inc of incomingJs) incomingRaw.push({ ...inc, from: await adopt(inc.from) });
+    for (const inc of [...incomingJs, ...incomingSf]) incomingRaw.push({ ...inc, from: await adopt(inc.from) });
     const outgoingRaw = [...outgoingOwn];
-    for (const out of outgoingApex) outgoingRaw.push({ ...out, to: await adopt(out.to) });
+    for (const out of [...outgoingApex, ...outgoingSf]) outgoingRaw.push({ ...out, to: await adopt(out.to) });
     return {
       incoming: incomingRaw.map((c) => ({ ...c, sites: distinctSites(c.sites) })),
       outgoing: outgoingRaw
@@ -209,6 +277,7 @@ export class GraphBuilder {
     if (!entry) throw new Error("That method is no longer available. Zoom out again from the editor.");
     const { item, source } = entry;
     const { incoming, outgoing } = await this.relations(entry);
+    if (item.role === "flow") return this.buildFlow(item, source, incoming, outgoing);
 
     const doc = await vscode.workspace.openTextDocument(item.uri);
     const center = await this.node(item, source);
@@ -240,17 +309,47 @@ export class GraphBuilder {
       calls.push({
         node: await this.node(out.to, source),
         args: out.args ?? readArgs(text, doc.offsetAt(site.end)) ?? [],
+        map: out.map,
         line: Math.max(0, Math.min(code.length - 1, site.start.line - bodyStart)),
         count: out.sites.length,
       });
     }
 
-    const callers = [];
-    for (const inc of incoming.slice(0, MAX_PER_COLUMN)) {
-      callers.push({ node: await this.node(inc.from, source), args: inc.args ?? (await argsAt(inc)), count: inc.sites.length });
-    }
+    return {
+      kind: "method",
+      center: { ...center, code, colors, firstLine: bodyStart + 1, calls },
+      callers: await this.callers(incoming, source),
+      source: item.role ? "metadata" : source.kind,
+    };
+  }
 
-    return { kind: "method", center: { ...center, code, colors, firstLine: bodyStart + 1, calls }, callers, source: source.kind };
+  private async callers(incoming: Incoming[], source: Source): Promise<Graph["callers"]> {
+    const out: Graph["callers"] = [];
+    for (const inc of incoming.slice(0, MAX_PER_COLUMN)) {
+      out.push({ node: await this.node(inc.from, source), args: inc.args ?? (await argsAt(inc)), map: inc.map, count: inc.sites.length });
+    }
+    return out;
+  }
+
+  /** A flow: its steps in run order in the middle, each call drawn from its step. */
+  private async buildFlow(item: Item, source: Source, incoming: Incoming[], outgoing: Outgoing[]): Promise<Graph> {
+    const entry = await this.usages.index.entry(item.uri);
+    if (!entry?.flow) throw new Error("That flow can't be read. Check that the file is valid flow metadata.");
+    const { lines, lineOf } = flowOutline(entry.flow);
+    const calls: Graph["center"]["calls"] = [];
+    for (const out of outgoing.slice(0, MAX_PER_COLUMN)) {
+      const step = elementAt(entry.flow, offsetIn(entry, out.sites[0].start));
+      calls.push({
+        node: await this.node(out.to, source),
+        args: out.args ?? [],
+        map: out.map,
+        line: (step && lineOf.get(step.name)) ?? 0,
+        count: out.sites.length,
+      });
+    }
+    calls.sort((a, b) => a.line - b.line);
+    const center = await this.node(item, source);
+    return { kind: "method", center: { ...center, code: lines, firstLine: 1, calls }, callers: await this.callers(incoming, source), source: "metadata" };
   }
 
   private async buildClass(id: string): Promise<ClassGraph> {
@@ -316,6 +415,7 @@ export class GraphBuilder {
     const decl = classDeclLine(doc.getText(), cls.container);
     const lines = docLines(doc);
     const docText = decl >= 0 ? findDoc(lines, decl, decl).text : "";
+    const testClass = decl >= 0 && isTestDecl(maskedOf(doc).lines, decl);
     // Callers in the order of the first method they call, so lines cross less.
     const sortedCallers = [...callers.values()].sort((a, b) => a.targets[0].method - b.targets[0].method);
     const sortedCalls = [...calls.values()].sort((a, b) => a.froms[0].method - b.froms[0].method);
@@ -323,9 +423,10 @@ export class GraphBuilder {
       kind: "class",
       id,
       name: cls.name,
-      file: vscode.workspace.asRelativePath(cls.uri, false),
+      file: await this.path(cls.uri),
       line: decl + 1,
       doc: docText,
+      type: codeType(cls.uri.path, { test: testClass || /(\.(test|spec)\.[cm]?[jt]sx?$)|\/__tests__\//i.test(cls.uri.path) }),
       methods,
       callers: sortedCallers,
       calls: sortedCalls,
@@ -336,10 +437,27 @@ export class GraphBuilder {
   private async node(item: Item, source: Source): Promise<GraphNode> {
     const id = itemId(item);
     if (!this.known.has(id)) this.known.set(id, { item, source });
+    if (item.role === "flow") {
+      const flow = (await this.usages.index.entry(item.uri))?.flow;
+      return {
+        id,
+        name: item.name,
+        container: flow?.type ?? "Flow",
+        classId: "",
+        file: await this.path(item.uri),
+        line: item.selectionRange.start.line + 1,
+        params: [],
+        doc: flow?.description ?? "",
+        test: false,
+        kind: "flow",
+        type: "flow",
+      };
+    }
     const doc = await vscode.workspace.openTextDocument(item.uri);
     const lines = docLines(doc);
     const { text } = findDoc(lines, item.range.start.line, item.selectionRange.start.line);
     const classId = await this.classIdOf(item);
+    const test = !item.role && isTest(doc, item, this.classes.get(classId)?.container ?? "");
     return {
       id,
       name: item.name.replace(/\(.*$/, ""),
@@ -349,11 +467,13 @@ export class GraphBuilder {
         (/\/aura\//i.test(item.uri.path) ? (/([^/]+)\.js$/i.exec(item.uri.path)?.[1] ?? "") : "") ||
         (/\/lwc\/.*\.html$/i.test(item.uri.path) ? (/([^/]+\.html)$/i.exec(item.uri.path)?.[1] ?? "") : ""),
       classId,
-      file: vscode.workspace.asRelativePath(item.uri, false),
+      file: await this.path(item.uri),
       line: item.selectionRange.start.line + 1,
-      params: readParams(doc.getText(), doc.offsetAt(item.selectionRange.end)),
+      params: item.role ? [] : readParams(doc.getText(), doc.offsetAt(item.selectionRange.end)),
       doc: text,
-      test: isTest(doc, item, this.classes.get(classId)?.container ?? ""),
+      test,
+      ...(item.role === "component" ? { kind: "component" as const } : {}),
+      type: codeType(item.uri.path, { test }),
     };
   }
 }

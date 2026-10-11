@@ -12,6 +12,13 @@
   --cm-caller: var(--vscode-charts-green, #89d185);
   --cm-mono: var(--vscode-editor-font-family, ui-monospace, Menlo, Consolas, monospace);
   --cm-ui: var(--vscode-font-family, system-ui, sans-serif);
+  /* Kinds of code. Theme colors, so they suit light, dark and high-contrast themes; green and orange are left to callers and calls. */
+  --t-apex: var(--vscode-charts-blue, #3794ff);
+  --t-trigger: var(--vscode-charts-red, #f14c4c);
+  --t-test: var(--vscode-charts-yellow, #cca700);
+  --t-lwc: var(--vscode-terminal-ansiCyan, #11a8cd);
+  --t-aura: var(--vscode-terminal-ansiMagenta, #bc3fbc);
+  --t-flow: var(--vscode-charts-purple, #b180d7);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -40,6 +47,7 @@ main { flex: 1; overflow: auto; padding: 20px 16px 28px; }
 .node .map { display: block; font-family: var(--cm-mono); font-size: 11px; color: var(--cm-call); margin-top: 3px; overflow-wrap: anywhere; }
 .node.caller .map { color: var(--cm-caller); }
 .node .doc { display: block; font-family: var(--cm-mono); font-size: 11px; line-height: 1.5; color: var(--cm-muted); font-style: italic; margin-top: 6px; padding: 6px 8px; background: var(--cm-sunk); border-radius: 4px; white-space: pre-wrap; max-height: 16em; overflow: auto; }
+.ln { white-space: nowrap; }
 .node .loc { display: block; font-family: var(--cm-mono); font-size: 10.5px; color: var(--cm-muted); margin-top: 3px; overflow-wrap: anywhere; }
 .node .count { color: var(--cm-muted); font-weight: 400; }
 .node.cur { border: 2px solid var(--cm-accent); cursor: default; }
@@ -102,3 +110,13 @@ svg.edges.inner { z-index: 2; }
 /* Long code: the side columns stay in view (centered when they fit) and scroll on their own. */
 .colm.side { position: sticky; top: 0; bottom: 0; max-height: var(--view-h, 80vh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 3px; margin: -3px; }
 .crumbs .now, .crumbs button { overflow-wrap: anywhere; min-width: 0; }
+
+/* Kinds of code: a label on every box, and the name in its color. */
+.t-apex { --t: var(--t-apex); }
+.t-trigger { --t: var(--t-trigger); }
+.t-test { --t: var(--t-test); }
+.t-lwc { --t: var(--t-lwc); }
+.t-aura { --t: var(--t-aura); }
+.t-flow { --t: var(--t-flow); }
+.tag { display: inline-block; font-family: var(--cm-ui); font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; line-height: 13px; padding: 0 4px; margin-right: 6px; border: 1px solid var(--t, var(--cm-muted)); border-radius: 3px; color: var(--t, var(--cm-muted)); vertical-align: 1px; }
+.node .nm, .mrow .mname { color: var(--t, inherit); }

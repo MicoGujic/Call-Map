@@ -1,6 +1,6 @@
 # Call Map
 
-Zoom out from the method you're reading into a map of where it sits in the code: who calls it on the left, what it calls on the right, and the arguments on every line. Walk the map with the arrow keys and jump back to the code when you're done. Built for Salesforce (Apex, LWC, Aura), and it also works for TypeScript, JavaScript and Java.
+Zoom out from the method you're reading into a map of where it sits in the code: who calls it on the left, what it calls on the right, and the arguments on every line. Walk the map with the arrow keys and jump back to the code when you're done. Built for Salesforce (Apex, LWC, Aura and Flow), and it also works for TypeScript, JavaScript and Java.
 
 ![The method view: callers on the left, the method in the middle, the calls it makes on the right](docs/method-view.png)
 
@@ -8,7 +8,9 @@ Zoom out from the method you're reading into a map of where it sits in the code:
 - **You are here** (middle): the method, its comment and its code, with each call line highlighted.
 - **Calls** (right): every method it calls. Lines start at the exact call, are labeled with the arguments, and each box shows which argument lands in which parameter (`total → amount`).
 
-When you highlight a method, its doc comment opens in the box so you can read it before you go there. Each box names its file, so you can follow the logic without opening files.
+When you highlight a method, its doc comment opens in the box so you can read it before you go there. Each box names its file, so you can follow the logic without opening files. In a Salesforce project the path starts inside the package folder (`classes/OrderService.cls`, not `force-app/main/default/classes/OrderService.cls`).
+
+Each box is tagged with its kind of code, and the name takes that kind's color: Apex, Test, Trigger, LWC, Aura and Flow each have their own color from your theme, and TypeScript, JavaScript and Java are tagged in grey.
 
 ## Install
 
@@ -20,7 +22,7 @@ When you highlight a method, its doc comment opens in the box so you can read it
 1. Put the cursor inside a method.
 2. Press **Ctrl+Alt+G** (**Cmd+Alt+G** on Mac), or right-click and pick **Zoom Out to Call Map**.
 
-If the cursor isn't in a method (a field, the class header, a comment), the map opens on the class of the file instead. To map a file without opening it, right-click it in the Explorer and pick **Open with Call Map** (shown when a single file is selected).
+If the cursor isn't in a method (a field, the class header, a comment), the map opens on the class of the file instead. In an LWC component outside any method, it opens on the component, and in a flow's `.flow-meta.xml` file it opens on the flow. To map a file without opening it, right-click it in the Explorer and pick **Open with Call Map** (shown when a single file is selected).
 
 | Key | What it does |
 | --- | --- |
@@ -82,13 +84,28 @@ Code in the map uses your color theme and the editor's own grammars, including `
   ![An LWC method calling into Apex](docs/lwc-to-apex.png)
 
 - **LWC templates to JavaScript.** An element with an event handler (`<lightning-button onclick={handleSave}>`) calls that method in the component's JavaScript. That lets a map follow a button through its handler into Apex.
+- **LWC parents and children.** Data goes down through properties and comes back up through events, and the map follows both ways:
+  - A child's tag in the parent's template (`<c-contact-list-item contact={contact}>`) links to the child, labeled with the properties it sets (`contact → contact`).
+  - A child method that fires an event (`this.dispatchEvent(new CustomEvent('select', { detail: this.contact.Id }))`) links to every parent method that handles it (`onselect={handleSelect}`), on the child's tag or, for events with `bubbles: true`, on an element around it.
+  - A parent calling a child's `@api` method (`this.template.querySelector('c-clock').refresh()`, through a variable, or `this.refs.clock.refresh()`) links the two methods.
+  - With the cursor in a component outside its methods, the map shows the component: the parents and flows that use it on the left, and where its events go on the right.
+
+  ![An LWC component: the parent that uses it on the left, the parent method that handles its event on the right](docs/lwc-events.png)
+
+- **Flows.** Call Map reads the `.flow-meta.xml` files in the project:
+  - An Apex `@InvocableMethod` lists the flows that run it as an action, labeled with the inputs (`property_address.city → city`).
+  - A flow's map shows its steps in the order they run. On the right are the Apex actions, subflows and LWC screen components it uses, each drawn from its step. On the left are the flows that use it as a subflow and the Apex, Aura and `<lightning-flow>` tags that start it (`Flow.Interview.createInterview('Name', …)`, `new Flow.Interview.Name(…)`, `startFlow("Name")`).
+  - Esc opens the flow's file. Flow Builder needs an org, so the map can't open it there.
+
+  ![A flow: its steps in the middle, the Apex action and LWC screen component it uses on the right](docs/flow.png)
+
 - **TypeScript, JavaScript, Java** (with Red Hat's Java extension), and any language whose extension supports *call hierarchy*, work directly. Java also gets the name matching above when no language server answers.
 
 ## When it runs
 
 Call Map starts on its own in Salesforce projects, meaning a folder with an `sfdx-project.json` file. In any other folder, it starts the first time you use one of its commands (Ctrl+Alt+G, Ctrl+Alt+H or **Open with Call Map**). Hovers work from then on.
 
-Once started, it builds an index of the Apex, Java and Lightning files in the folder in the background. The index records the calls in each file, its method declarations and what its classes extend. It's updated one file at a time as you type, save, pull or delete files.
+Once started, it builds an index of the Apex, Java, Lightning and flow files in the folder in the background. The index records the calls in each file, its method declarations and what its classes extend. It's updated one file at a time as you type, save, pull or delete files.
 
 On a test workspace of 3,000 Apex classes, the first map opens in about 3 seconds and later ones in well under a second.
 
@@ -96,7 +113,7 @@ On a test workspace of 3,000 Apex classes, the first map opens in about 3 second
 
 - **No network access.** Call Map doesn't send anything anywhere: it has no telemetry, no update checks and no network code. VS Code itself handles updates from the Marketplace.
 - **What it reads:**
-  - in the open folder: `.cls`, `.trigger` and `.java` files, and the `.js` and `.html` files of LWC and Aura components, skipping `node_modules`, `.sfdx`, `.git`, `target`, `build` and `out`;
+  - in the open folder: `.cls`, `.trigger` and `.java` files, the `.js` and `.html` files of LWC and Aura components, and `.flow-meta.xml` files, skipping `node_modules`, `.sfdx`, `.git`, `target`, `build` and `out`;
   - the files of your active color theme and the grammar files of installed extensions, to color code the way your editor does.
 - **What it keeps:** its index lives in memory only. It doesn't store files, caches or logs on disk.
 - **What it writes:** only the `callMap.hideTests` setting, when you press T.
