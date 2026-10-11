@@ -21,6 +21,23 @@ function skipSpace(text: string, i: number): number {
   }
 }
 
+/** `s` with every regular-expression character escaped, so a name can go into a RegExp. */
+export function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** `s` without its generic argument lists, nested ones included (`Batchable<Map<Id, X>>` → `Batchable`). */
+function stripGenerics(s: string): string {
+  let depth = 0;
+  let out = "";
+  for (const ch of s) {
+    if (ch === "<") depth++;
+    else if (ch === ">") depth = Math.max(0, depth - 1);
+    else if (depth === 0) out += ch;
+  }
+  return out;
+}
+
 /** Skip a balanced <...> generic argument list (TS/Java) starting at '<'. */
 function skipGenerics(text: string, i: number): number {
   let depth = 0;
@@ -332,7 +349,7 @@ const NOT_TYPES = new Set(["return", "new", "else", "throw", "case", "in", "of",
  * last segment of a dotted type (`Outer.Inner` → `Inner`), or undefined.
  */
 export function declaredTypeOf(masked: string, offset: number, name: string): string | undefined {
-  const n = name.replace(/[$]/g, "\\$");
+  const n = escapeRegExp(name);
   const re = new RegExp(`\\b([A-Za-z_][\\w.]*)\\s*(?:<[^;(){}]*>\\s*)?(?:\\[\\s*\\]\\s*)?\\b${n}\\s*(?=[=;,):])`, "gi");
   let found: string | undefined;
   let fallback: string | undefined;
@@ -348,11 +365,11 @@ export function declaredTypeOf(masked: string, offset: number, name: string): st
 
 /** Names a class extends or implements, as declared in `masked`. */
 export function supertypesIn(masked: string, className: string): string[] {
-  const n = className.replace(/[$]/g, "\\$");
+  const n = escapeRegExp(className);
   const m = new RegExp(`\\b(?:class|interface)\\s+${n}\\b([^{]*)\\{`, "i").exec(masked);
   if (!m) return [];
   const out: string[] = [];
-  const clause = m[1].replace(/<[^<>]*>/g, "");
+  const clause = stripGenerics(m[1]);
   for (const part of clause.split(/\b(?:extends|implements)\b/i).slice(1)) {
     for (const t of part.split(",")) {
       const name = t.trim().split(".").pop();
@@ -407,7 +424,7 @@ export function apexImports(text: string): Map<string, { cls: string; method: st
 
 /** Offsets of uses of `name` as a call or a @wire adapter. */
 export function apexCallSites(masked: string, name: string): { offset: number; wire: boolean }[] {
-  const n = name.replace(/[$]/g, "\\$");
+  const n = escapeRegExp(name);
   const out: { offset: number; wire: boolean }[] = [];
   const re = new RegExp(`(@wire\\s*\\(\\s*)?(?<![\\w$.])${n}\\b`, "g");
   let m: RegExpExecArray | null;

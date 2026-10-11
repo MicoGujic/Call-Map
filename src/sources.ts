@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { Entry, FileKind, kindOf, positionIn, WorkspaceIndex } from "./index";
-import { declaredTypeOf, findCallCandidates, findMethodDecls, templateHandlers } from "./parse";
+import { declaredTypeOf, escapeRegExp, findCallCandidates, findMethodDecls, templateHandlers } from "./parse";
 
 function baseName(uri: vscode.Uri): string {
   return (/([^/]+?)(\.[^./]+)?$/.exec(uri.path)?.[1] ?? "").toLowerCase();
@@ -139,7 +139,7 @@ export class UsagesSource implements Source {
     if (/^\s*\(/.test(after) && !/\bnew\s+$/.test(before)) return undefined; // a call, not a class
     const declName = async (u: vscode.Uri) => {
       const { masked } = await this.textOf(u);
-      const m = new RegExp(`\\b(?:class|interface|enum|trigger)\\s+(${name.replace(/[$]/g, "\\$")})\\b`, "i").exec(masked);
+      const m = new RegExp(`\\b(?:class|interface|enum|trigger)\\s+(${escapeRegExp(name)})\\b`, "i").exec(masked);
       return m?.[1];
     };
     const target = await this.definitionOf(uri, word.start);

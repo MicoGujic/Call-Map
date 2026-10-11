@@ -2,7 +2,7 @@
   "name": "salesforce-call-map",
   "displayName": "Call Map",
   "description": "Zoom out from the method you're reading into a graph of who calls it and what it calls, with the arguments on every line. Walk the calls with the arrow keys.",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "publisher": "MicoGujic",
   "license": "MIT",
   "repository": {

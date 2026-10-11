@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { ColoredLine, Highlighter } from "./highlight";
-import { findDoc, isTestDecl, maskStringsAndComments, readArgs, readParams } from "./parse";
+import { escapeRegExp, findDoc, isTestDecl, maskStringsAndComments, readArgs, readParams } from "./parse";
 import { ApexBridge } from "./bridge";
 import { WorkspaceIndex } from "./index";
 import { HierarchySource, Incoming, Item, itemId, Outgoing, Source, UsagesSource } from "./sources";
@@ -406,7 +406,7 @@ function closingBrace(text: string, open: number): number {
 export function classDeclLine(text: string, name: string): number {
   if (!name) return 0;
   const masked = maskStringsAndComments(text);
-  const re = new RegExp(`\\b(class|interface|enum|trigger)\\s+${name.replace(/[$]/g, "\\$")}\\b`, "i");
+  const re = new RegExp(`\\b(class|interface|enum|trigger)\\s+${escapeRegExp(name)}\\b`, "i");
   const m = re.exec(masked);
   if (!m) return -1;
   // Start of the declaration line, including modifiers before the keyword.

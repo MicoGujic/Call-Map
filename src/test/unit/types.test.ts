@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { test } from "node:test";
-import { declaredTypeOf, isTestDecl, supertypesIn } from "../../parse";
+import { declaredTypeOf, escapeRegExp, isTestDecl, supertypesIn } from "../../parse";
 
 test("declaredTypeOf finds local, cast and parameter types", () => {
   const src = `void run(Timeline_Configuration__c conf, String recordId) {
@@ -20,6 +20,17 @@ test("supertypesIn reads extends and implements", () => {
   const src = "global with sharing class Sample extends Base implements ITimeline, Database.Batchable<SObject> {";
   assert.deepStrictEqual(supertypesIn(src, "Sample"), ["Base", "ITimeline", "Batchable"]);
   assert.deepStrictEqual(supertypesIn("class A {", "A"), []);
+});
+
+test("supertypesIn skips nested generics", () => {
+  const src = "class Job implements Database.Batchable<Map<Id, List<Account>>>, Schedulable {";
+  assert.deepStrictEqual(supertypesIn(src, "Job"), ["Batchable", "Schedulable"]);
+});
+
+test("escapeRegExp makes any name safe to search for", () => {
+  const name = "Outer.Inner$1(int) [a-z]+ \\d";
+  assert.strictEqual(new RegExp(escapeRegExp(name)).exec("x " + name + " y")?.[0], name);
+  assert.strictEqual(new RegExp(escapeRegExp("a.b")).test("axb"), false);
 });
 
 test("isTestDecl sees annotations and testMethod", () => {

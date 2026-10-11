@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.5
+
+- Classes that extend or implement a type with nested generics, such as `Database.Batchable<Map<Id, List<Account>>>`, now link to that type.
+- A class name with brackets or other special characters, as some language servers report them, no longer stops the map from opening.
+- The map window escapes every value it shows, including line numbers and counts, and only accepts hex colors from the theme. This clears GitHub's CodeQL code-scanning alerts.
+
 ## 0.6.4
 
 - Starts on its own only in Salesforce projects (a folder with `sfdx-project.json`). Elsewhere it starts the first time you use one of its commands, instead of in every VS Code window.

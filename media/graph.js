@@ -83,8 +83,10 @@
     const doc = sel && n.doc ? `<span class="doc">${esc(n.doc)}</span>` : "";
     return `<button class="node ${kind === "callers" ? "caller" : "callee"}${sel ? " sel" : ""}" data-col="${kind}" data-i="${i}" tabindex="-1">
       ${n.container ? `<span class="cls">${esc(n.container)}</span>` : ""}<span class="nm">${n.container && dot(n) === "." ? "." : ""}${esc(sig(n))}${extra || ""}</span>
-      <span class="map">${esc(map)}</span>${doc}<span class="loc">${esc(n.file)} : ${n.line}</span></button>`;
+      <span class="map">${esc(map)}</span>${doc}<span class="loc">${esc(n.file)} : ${esc(n.line)}</span></button>`;
   }
+
+  const HEX = /^#[0-9a-f]{3,8}$/i;
 
   function coloredLine(text, runs, colorMap) {
     if (!runs || !colorMap) return esc(text);
@@ -93,11 +95,11 @@
       const part = text.slice(at, at + len);
       at += len;
       if (!part) continue;
-      let style = colorMap[fg] ? `color:${colorMap[fg]};` : "";
+      let style = HEX.test(colorMap[fg]) ? `color:${colorMap[fg]};` : "";
       if (fs & 1) style += "font-style:italic;";
       if (fs & 2) style += "font-weight:bold;";
       if (fs & 4) style += "text-decoration:underline;";
-      out += style ? `<span style="${style}">${esc(part)}</span>` : esc(part);
+      out += style ? `<span style="${esc(style)}">${esc(part)}</span>` : esc(part);
     }
     return out + esc(text.slice(at));
   }
@@ -105,10 +107,10 @@
   function renderMethod() {
     const g = S.graph, c = g.center;
     const callers =
-      g.callers.map((e, i) => sideNode("callers", e.node, i, "passes " + (e.args.join(", ") || "nothing"), e.count > 1 ? ` <span class="count">×${e.count}</span>` : "")).join("") ||
+      g.callers.map((e, i) => sideNode("callers", e.node, i, "passes " + (e.args.join(", ") || "nothing"), e.count > 1 ? ` <span class="count">×${esc(e.count)}</span>` : "")).join("") ||
       `<div class="empty">Nothing in this workspace calls this method.</div>`;
     const calls =
-      c.calls.map((e, i) => sideNode("calls", e.node, i, mapping(e.args, e.node.params), e.count > 1 ? ` <span class="count">×${e.count}</span>` : "")).join("") ||
+      c.calls.map((e, i) => sideNode("calls", e.node, i, mapping(e.args, e.node.params), e.count > 1 ? ` <span class="count">×${esc(e.count)}</span>` : "")).join("") ||
       `<div class="empty">Calls nothing else in this workspace.</div>`;
     const byLine = new Map();
     c.calls.forEach((e, i) => {
@@ -198,7 +200,7 @@
         const rel = sel ? relations(r) : "";
         return `<div class="mrow${sel ? " sel" : ""}${hot ? " hot" : ""}" data-row="${r}">
           <span class="mname">${esc(sig(m.node))}</span>
-          <span class="counts">${m.inCount ? "← " + m.inCount : ""}${m.inCount && m.outCount ? " · " : ""}${m.outCount ? m.outCount + " →" : ""}</span>
+          <span class="counts">${m.inCount ? "← " + esc(m.inCount) : ""}${m.inCount && m.outCount ? " · " : ""}${m.outCount ? esc(m.outCount) + " →" : ""}</span>
           ${inner}${rel}${doc}</div>`;
       })
       .join("");
@@ -206,7 +208,7 @@
       <div class="colm side${S.col === "callers" ? " focus" : ""}"><div class="ch">Used by (${g.callers.length})</div>${callers}</div>
       <div class="colm"><div class="ch">Class</div>
         <div class="node cur klass" id="center">
-          <span class="cls">${esc(g.file)} : ${g.line}</span>
+          <span class="cls">${esc(g.file)} : ${esc(g.line)}</span>
           <span class="nm">${esc(g.name)}</span>
           ${g.doc ? `<span class="doc">${esc(g.doc)}</span>` : ""}
           <div class="rows">${rows || `<div class="empty">No methods found.</div>`}</div>
