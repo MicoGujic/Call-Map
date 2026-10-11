@@ -9,7 +9,7 @@ const ws = () => vscode.workspace.workspaceFolders![0].uri;
 const file = (rel: string) => vscode.Uri.joinPath(ws(), rel);
 
 async function api(): Promise<CallMapApi> {
-  const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "call-map")!;
+  const ext = vscode.extensions.all.find((e) => e.packageJSON.name === "salesforce-call-map")!;
   return (await ext.activate()) as CallMapApi;
 }
 

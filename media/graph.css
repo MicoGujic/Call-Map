@@ -17,12 +17,13 @@
 html, body { height: 100%; }
 body { margin: 0; padding: 0; background: var(--cm-bg); color: var(--cm-fg); font-family: var(--cm-ui); font-size: 13px; display: flex; flex-direction: column; outline: none; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 16px; border-bottom: 1px solid var(--cm-line); }
-.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; flex: 1; min-width: 0; font-family: var(--cm-mono); font-size: 12px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; flex: 1 1 320px; min-width: 0; font-family: var(--cm-mono); font-size: 12px; overflow-wrap: anywhere; }
 .crumbs button { all: unset; cursor: pointer; color: var(--cm-muted); padding: 1px 4px; border-radius: 3px; }
 .crumbs button:hover, .crumbs button:focus-visible { background: var(--cm-accent-soft); color: var(--cm-fg); }
 .crumbs .now { color: var(--cm-accent); padding: 1px 4px; }
 .crumbs .sep { color: var(--cm-muted); opacity: 0.5; }
 .status { color: var(--cm-muted); font-size: 12px; }
+.status .hint { color: var(--cm-accent); font-weight: 600; }
 .keys { color: var(--cm-muted); font-size: 12px; }
 kbd { font-family: var(--cm-mono); font-size: 11px; border: 1px solid var(--cm-line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; margin: 0 1px; }
 main { flex: 1; overflow: auto; padding: 20px 16px 28px; }
@@ -34,7 +35,7 @@ main { flex: 1; overflow: auto; padding: 20px 16px 28px; }
 .node { display: block; text-align: left; width: 100%; background: var(--cm-panel); color: var(--cm-fg); border: 1px solid var(--cm-line); border-radius: 6px; padding: 8px 10px; font: inherit; cursor: pointer; }
 .node:hover { border-color: var(--cm-muted); }
 .node.sel { border-color: var(--cm-accent); box-shadow: 0 0 0 2px var(--cm-accent-soft); }
-.node .cls { display: block; font-family: var(--cm-mono); font-size: 11px; color: var(--cm-muted); }
+.node .cls { display: block; font-family: var(--cm-mono); font-size: 11px; color: var(--cm-muted); overflow-wrap: anywhere; }
 .node .nm { display: block; font-family: var(--cm-mono); font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; }
 .node .map { display: block; font-family: var(--cm-mono); font-size: 11px; color: var(--cm-call); margin-top: 3px; overflow-wrap: anywhere; }
 .node.caller .map { color: var(--cm-caller); }
@@ -42,6 +43,7 @@ main { flex: 1; overflow: auto; padding: 20px 16px 28px; }
 .node .loc { display: block; font-family: var(--cm-mono); font-size: 10.5px; color: var(--cm-muted); margin-top: 3px; overflow-wrap: anywhere; }
 .node .count { color: var(--cm-muted); font-weight: 400; }
 .node.cur { border: 2px solid var(--cm-accent); cursor: default; }
+.node.cur.armed { box-shadow: 0 0 0 3px var(--cm-accent-soft); }
 .node.cur .nm { font-size: 13.5px; }
 .node.cur pre { font-family: var(--cm-mono); font-size: 12px; line-height: 1.65; margin: 8px 0 0; white-space: pre; overflow-x: auto; }
 .cl { display: inline-block; min-width: 100%; background: var(--cm-call-soft); border-radius: 2px; }

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.4
+
+- Starts on its own only in Salesforce projects (a folder with `sfdx-project.json`). Elsewhere it starts the first time you use one of its commands, instead of in every VS Code window.
+- Hover links show names and file names as plain text, so an unusual file name can't change the link.
+- Declares that it stays off in untrusted folders (Restricted Mode), which was already VS Code's default for it.
+- New README with a Privacy and security section, plus SECURITY.md and CONTRIBUTING.md.
+- The GitHub build runs read-only, with actions pinned to exact versions. Only the release step on version tags can write.
+
+## 0.6.3
+
+- Open the method you're on from the keyboard: press Enter twice on the middle box (the first Enter asks, the second opens it in the editor), the same as a double-click. Esc still does it in one key.
+
+## 0.6.2
+
+- Published by MicoGujic under the MIT license. The extension ID is now `MicoGujic.salesforce-call-map` (the name `call-map` is taken on the Marketplace); uninstall the earlier `call-map.call-map` builds.
+
 ## 0.6.1
 
 - Long methods and classes: picking a call scrolls the code to its line (class view: to the linked method rows), and the side columns stay in view beside the code.

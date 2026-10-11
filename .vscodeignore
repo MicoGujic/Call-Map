@@ -1,0 +1,16 @@
+src/**
+out/test/**
+test-fixtures/**
+.vscode-test/**
+tsconfig.json
+*.vsix
+**/*.map
+node_modules/**/*.md
+node_modules/**/*.d.ts
+node_modules/**/*.map
+.github/**
+.vscode/**
+docs/**
+.gitignore
+CONTRIBUTING.md
+SECURITY.md

@@ -8,12 +8,26 @@ function cmd(name: string, args: unknown[]): string {
   return `command:${name}?${encodeURIComponent(JSON.stringify(args))}`;
 }
 
+/**
+ * Names and file names come from the workspace, so they're escaped before they
+ * go into Markdown: a crafted file name can't turn into a link or an icon.
+ */
+function text(s: string): string {
+  return new vscode.MarkdownString(undefined, true).appendText(s.replace(/[\r\n]+/g, " ")).value;
+}
+function code(s: string): string {
+  return "`" + s.replace(/[`\r\n]+/g, " ") + "`";
+}
+function title(s: string): string {
+  return s.replace(/["\\\r\n]+/g, " ");
+}
+
 function nodeLink(builder: GraphBuilder, n: GraphNode, label = n.name): string {
   const item = builder.item(n.id);
-  if (!item) return `\`${label}\``;
+  if (!item) return code(label);
   const s = item.selectionRange.start;
-  const title = `${n.container ? n.container + "." : ""}${n.name} · ${n.file}:${n.line}`;
-  return `[${label}](${cmd("callMap.goto", [item.uri.toString(), s.line, s.character])} "${title.replace(/"/g, "'")}")`;
+  const tip = `${n.container ? n.container + "." : ""}${n.name} · ${n.file}:${n.line}`;
+  return `[${text(label)}](${cmd("callMap.goto", [item.uri.toString(), s.line, s.character])} "${title(tip)}")`;
 }
 
 function list(links: string[]): string {
@@ -55,7 +69,7 @@ export function registerHover(builder: GraphBuilder): vscode.Disposable {
         if (g.kind !== "method" || token.isCancellationRequested) return undefined;
         const c = g.center;
         const item = builder.item(methodId)!;
-        md.appendMarkdown(`$(type-hierarchy) **Call Map** · \`${c.container ? c.container + "." : ""}${c.name}\`\n\n`);
+        md.appendMarkdown(`$(type-hierarchy) **Call Map** · ${code((c.container ? c.container + "." : "") + c.name)}\n\n`);
         md.appendMarkdown(`$(arrow-left) **Called from:** ${list(g.callers.map((x) => nodeLink(builder, x.node, x.node.container && x.node.container !== c.container ? `${x.node.container}.${x.node.name}` : x.node.name)))}\n\n`);
         md.appendMarkdown(`$(arrow-right) **Calls:** ${list(c.calls.map((x) => nodeLink(builder, x.node, x.node.container && x.node.container !== c.container ? `${x.node.container}.${x.node.name}` : x.node.name)))}\n\n`);
         const s = item.selectionRange.start;
@@ -80,7 +94,7 @@ export function registerHover(builder: GraphBuilder): vscode.Disposable {
         if (!uses.has(key)) uses.set(key, nodeLink(builder, c.node, c.node.container || c.node.file.split("/").pop()!));
       }
       const loc = builder.classLocation(classId)!;
-      md.appendMarkdown(`$(type-hierarchy) **Call Map** · class \`${g.name}\` · ${g.methods.length} methods\n\n`);
+      md.appendMarkdown(`$(type-hierarchy) **Call Map** · class ${code(g.name)} · ${g.methods.length} methods\n\n`);
       md.appendMarkdown(`$(arrow-left) **Used by:** ${list([...usedBy.values()])}\n\n`);
       md.appendMarkdown(`$(arrow-right) **Uses:** ${list([...uses.values()])}\n\n`);
       md.appendMarkdown(`[Open class map](${cmd("callMap.openAt", [loc.uri.toString(), word.start.line, word.start.character, "class"])})`);

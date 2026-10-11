@@ -13,9 +13,9 @@
   /**
    * @type {{cur: string|null, graph: any, hist: {id:string,name:string}[],
    *   col: "callers"|"center"|"calls", idx: number, row: number, focusId: string|null,
-   *   full: any, hideTests: boolean, hidden: number, source: string}}
+   *   full: any, hideTests: boolean, hidden: number, source: string, armed: boolean}}
    */
-  const S = { cur: null, graph: null, hist: [], col: "center", idx: 0, row: 0, focusId: null, full: null, hideTests: false, hidden: 0, source: "" };
+  const S = { cur: null, graph: null, hist: [], col: "center", idx: 0, row: 0, focusId: null, full: null, hideTests: false, hidden: 0, source: "", armed: false };
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   // Template elements ("<lightning-button> onclick") and @wire properties aren't called with parentheses.
@@ -57,10 +57,16 @@
     }
     testsBtn.textContent = S.hideTests ? "Show tests (T)" : "Hide tests (T)";
     testsBtn.setAttribute("aria-pressed", String(S.hideTests));
+    showStatus();
+  }
+
+  /** The note next to the buttons; while Enter is waiting for its second press, it says what that press does. */
+  function showStatus() {
     const notes = [];
     if (S.source === "usages") notes.push("Built from usages");
     if (S.hidden) notes.push(S.hidden === 1 ? "1 test hidden" : S.hidden + " tests hidden");
     status.textContent = notes.join(" · ");
+    if (S.armed) status.insertAdjacentHTML("afterbegin", `<span class="hint">Enter again opens it in the editor</span>${notes.length ? " · " : ""}`);
   }
 
   function toggleTests() {
@@ -122,7 +128,7 @@
     gwrap.innerHTML = `<div class="cols">
       <div class="colm side${S.col === "callers" ? " focus" : ""}"><div class="ch">Called from (${g.callers.length})</div>${callers}</div>
       <div class="colm"><div class="ch">You are here</div>
-        <div class="node cur" id="center">
+        <div class="node cur${S.armed ? " armed" : ""}" id="center">
           <span class="cls">${esc([c.container, c.file + " : " + c.line].filter(Boolean).join(" · "))}</span>
           <span class="nm">${esc(sig(c))}</span>
           ${c.doc ? `<span class="doc">${esc(c.doc)}</span>` : ""}
@@ -387,6 +393,7 @@
     S.idx = 0;
     S.row = 0;
     S.focusId = focusId || null;
+    S.armed = false;
     vscode.postMessage({ type: "show", id, dir });
   }
   function travel(id, dir, focusId) {
@@ -436,6 +443,10 @@
     const g = S.graph;
     if (k === "Escape") { closeToCode(); return true; }
     if (!g) return false;
+    // Enter on the middle box of a method opens it in the editor, like a double-click: the first press asks, the second goes.
+    const armed = S.armed;
+    S.armed = false;
+    if (armed) showStatus();
     const callers = g.callers;
     const calls = g.kind === "class" ? g.calls : g.center.calls;
     const n = S.col === "calls" ? calls.length : S.col === "callers" ? callers.length : 0;
@@ -465,13 +476,18 @@
           return true;
         }
         if (g.kind === "class") { zoom(); return true; }
-        return true;
+        if (armed) { closeToCode(); return true; }
+        S.armed = true;
+        showStatus();
+        break;
       case "z": case "Z": case "-": case "+":
         zoom();
         return true;
-      case "Backspace": back(); return true;
+      case "Backspace": if (armed) render(); back(); return true;
       case "t": case "T": toggleTests(); return true;
-      default: return false;
+      default:
+        if (armed) render();
+        return false;
     }
     render();
     return true;
@@ -493,6 +509,7 @@
   });
   gwrap.addEventListener("click", (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
+    if (S.armed) { S.armed = false; showStatus(); render(); }
     const row = target.closest(".mrow");
     if (row && S.graph) {
       const r = +(/** @type {HTMLElement} */ (row).dataset.row || 0);

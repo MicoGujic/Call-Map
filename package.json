@@ -1,10 +1,10 @@
 {
-  "name": "call-map",
+  "name": "salesforce-call-map",
   "displayName": "Call Map",
   "description": "Zoom out from the method you're reading into a graph of who calls it and what it calls, with the arguments on every line. Walk the calls with the arrow keys.",
-  "version": "0.6.1",
-  "publisher": "call-map",
-  "license": "UNLICENSED",
+  "version": "0.6.4",
+  "publisher": "MicoGujic",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/MicoGujic/Call-Map.git"
@@ -30,8 +30,14 @@
     "navigation"
   ],
   "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
   "activationEvents": [
-    "onStartupFinished"
+    "workspaceContains:sfdx-project.json",
+    "workspaceContains:**/sfdx-project.json"
   ],
   "contributes": {
     "commands": [
@@ -136,7 +142,7 @@
     "compile": "tsc -p .",
     "test:unit": "node --test out/test/unit/*.test.js",
     "test:integration": "node out/test/runIntegration.js",
-    "package": "vsce package --skip-license",
+    "package": "vsce package",
     "watch": "tsc -watch -p ."
   },
   "devDependencies": {

@@ -121,7 +121,7 @@ class CallMapPanel {
   <span class="status" id="status"></span>
   <button class="zoom" id="zoom" type="button"></button>
   <button class="zoom" id="tests" type="button" aria-pressed="false">Hide tests (T)</button>
-  <span class="keys"><kbd>←</kbd><kbd>→</kbd> move <kbd>↑</kbd><kbd>↓</kbd> pick <kbd>Z</kbd> zoom <kbd>T</kbd> tests <kbd>⌫</kbd> back <kbd>Esc</kbd> to code</span>
+  <span class="keys"><kbd>←</kbd><kbd>→</kbd> move <kbd>↑</kbd><kbd>↓</kbd> pick <kbd>Z</kbd> zoom <kbd>T</kbd> tests <kbd>⌫</kbd> back <kbd>Enter</kbd><kbd>Enter</kbd> or <kbd>Esc</kbd> to code</span>
 </header>
 <main id="main"><div class="gwrap" id="gwrap"></div></main>
 <script nonce="${nonce}" src="${media("graph.js")}"></script>
